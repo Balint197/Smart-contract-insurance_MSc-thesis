@@ -20,7 +20,7 @@ contract YourContract {
     uint contractLength;
     uint variableThreshold;
     uint variableValue;
-    bool greaterThanThreshold; // if true, contract pays out if final variable is greater than threshold, if false pays if lower than threshold
+    bool greaterThanThreshold; // if true, insured wins if final variable is greater than threshold, if false pays insured if lower than threshold
     address insured;
     string name;
     uint insureeDeposit; // delet
@@ -42,14 +42,14 @@ contract YourContract {
   //@dev ensures a function can only be called at a certain stage
   //     receives multiple enabled stages in an array
   modifier atStage(uint id, ContractStates[2] memory _stage) {//ContractStates _stage) {
-      uint stageRevert;
+      bool stageOK;
       for (uint i = 0; i < _stage.length; i++){
-        if (insuranceContracts[id].contractState != _stage[i])
-          stageRevert++;
-        if (stageRevert > _stage.length - 1) // if at least one stage is allowed
-          revert FunctionInvalidAtThisStage();
-        _;
+        if (insuranceContracts[id].contractState == _stage[i])
+          stageOK = true;          
       }
+      if (!stageOK)
+        revert FunctionInvalidAtThisStage();
+      _;
   }
 
   //@dev transitions selected contract to next state
@@ -114,12 +114,14 @@ contract YourContract {
   // STATE FUNCTIONS
   // ---------------
 
-  // TODO using same argument as 2nd parameter until solution to passing arbitrary values to array
+  // TODO using same argument as 2nd parameter where applicable 
+  // until solution to passing arbitrary values to array
   function deposit(uint _id) public payable timedTransitions(_id) atStage(_id, [ContractStates.Funding, ContractStates.Funding]) { 
     insuranceContracts[_id].balance[msg.sender] += msg.value;
+    insuranceContracts[_id].totalDeposits += msg.value;
   }
 
-  function withdraw(uint _id, uint withdrawAmount) public timedTransitions(_id) atStage(_id, [ContractStates.Funding, ContractStates.Withdraw]) {
+  function withdraw(uint _id, uint _withdrawAmount) public timedTransitions(_id) atStage(_id, [ContractStates.Funding, ContractStates.Withdraw]) {
     uint maxAmount = insuranceContracts[_id].balance[msg.sender];
 
     if (insuranceContracts[_id].contractState == ContractStates.Withdraw){
@@ -128,20 +130,38 @@ contract YourContract {
     }
 
 
-    require(maxAmount >= withdrawAmount, "Trying to withdraw too much");
-    (bool success, ) = msg.sender.call{value: withdrawAmount}("");
+    require(maxAmount >= _withdrawAmount, "Trying to withdraw too much");
+    (bool success, ) = msg.sender.call{value: _withdrawAmount}("");
     require(success, "Failed to send Ether");
+    insuranceContracts[_id].depositBalance[msg.sender] -= _withdrawAmount;
+    insuranceContracts[_id].totalDeposits -= _withdrawAmount;
   }
 
   function active(uint _id) public timedTransitions(_id) atStage(_id, [ContractStates.Active, ContractStates.Active]) {
-    // ...
+    // update variable 
   }
 
   function redeem(uint _id) public timedTransitions(_id) atStage(_id, [ContractStates.Payout, ContractStates.Payout]) {
-    // ...
+    bool resultIsGreater;
+    if (insuranceContracts[_id].variableValue > insuranceContracts[_id].variableThreshold){
+      resultIsGreater = true;
+    }
+
+    if (resultIsGreater == insuranceContracts[_id].greaterThanThreshold){
+      // insured wins
+      // (final value is greater than threshold AND contract pays if its greater) OR (... smaller AND ... smaller)
+      require(msg.sender == insuranceContracts[_id].insured);
+      (bool success, ) = msg.sender.call{value: insuranceContracts[_id].totalDeposits}("");
+      require(success, "Failed to send Ether");
+      insuranceContracts[_id].totalDeposits = 0;
+    } else {
+      // insurers win
+      require(msg.sender != insuranceContracts[_id].insured);
+      uint amount = insuranceContracts[_id].depositBalance[msg.sender] / (insuranceContracts[_id].totalDeposits - insuranceContracts[_id].depositBalance[insuranceContracts[_id].insured]) * insuranceContracts[_id].totalDeposits;
+      (bool success, ) = msg.sender.call{value: amount}("");
+      require(success, "Failed to send Ether");
+      insuranceContracts[_id].depositBalance[msg.sender] = 0;
+    }
+
   }
-
-
-
-
 }
