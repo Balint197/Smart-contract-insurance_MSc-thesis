@@ -26,6 +26,7 @@ contract YourContract {
     uint insureeDeposit; // delet
     ContractStates contractState;
     uint contractId;
+    uint totalDeposits;
     mapping (address => uint) balance; // maps the insurers addresses to their deposits
   }
 
@@ -133,7 +134,7 @@ contract YourContract {
     require(maxAmount >= _withdrawAmount, "Trying to withdraw too much");
     (bool success, ) = msg.sender.call{value: _withdrawAmount}("");
     require(success, "Failed to send Ether");
-    insuranceContracts[_id].depositBalance[msg.sender] -= _withdrawAmount;
+    insuranceContracts[_id].balance[msg.sender] -= _withdrawAmount;
     insuranceContracts[_id].totalDeposits -= _withdrawAmount;
   }
 
@@ -157,10 +158,10 @@ contract YourContract {
     } else {
       // insurers win
       require(msg.sender != insuranceContracts[_id].insured);
-      uint amount = insuranceContracts[_id].depositBalance[msg.sender] / (insuranceContracts[_id].totalDeposits - insuranceContracts[_id].depositBalance[insuranceContracts[_id].insured]) * insuranceContracts[_id].totalDeposits;
+      uint amount = insuranceContracts[_id].balance[msg.sender] / (insuranceContracts[_id].totalDeposits - insuranceContracts[_id].balance[insuranceContracts[_id].insured]) * insuranceContracts[_id].totalDeposits;
       (bool success, ) = msg.sender.call{value: amount}("");
       require(success, "Failed to send Ether");
-      insuranceContracts[_id].depositBalance[msg.sender] = 0;
+      insuranceContracts[_id].balance[msg.sender] = 0;
     }
 
   }
