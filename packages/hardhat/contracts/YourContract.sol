@@ -23,10 +23,10 @@ contract YourContract {
     bool greaterThanThreshold; // if true, contract pays out if final variable is greater than threshold, if false pays if lower than threshold
     address insured;
     string name;
-    uint insureeDeposit;
+    uint insureeDeposit; // delet
     ContractStates contractState;
     uint contractId;
-    mapping (address => uint) insurerDeposit; // maps the insurers addresses to their deposits
+    mapping (address => uint) balance; // maps the insurers addresses to their deposits
   }
 
   contractParameters[] public insuranceContracts;
@@ -116,11 +116,21 @@ contract YourContract {
 
   // TODO using same argument as 2nd parameter until solution to passing arbitrary values to array
   function deposit(uint _id) public payable timedTransitions(_id) atStage(_id, [ContractStates.Funding, ContractStates.Funding]) { 
-    // ...
+    insuranceContracts[_id].balance[msg.sender] += msg.value;
   }
 
   function withdraw(uint _id, uint withdrawAmount) public timedTransitions(_id) atStage(_id, [ContractStates.Funding, ContractStates.Withdraw]) {
-    // ...
+    uint maxAmount = insuranceContracts[_id].balance[msg.sender];
+
+    if (insuranceContracts[_id].contractState == ContractStates.Withdraw){
+      uint withdrawMultiplier = (block.timestamp-insuranceContracts[_id].creationTime+depositLength)/(withdrawLength)-1;
+      // ...
+    }
+
+
+    require(maxAmount >= withdrawAmount, "Trying to withdraw too much");
+    (bool success, ) = msg.sender.call{value: withdrawAmount}("");
+    require(success, "Failed to send Ether");
   }
 
   function active(uint _id) public timedTransitions(_id) atStage(_id, [ContractStates.Active, ContractStates.Active]) {
