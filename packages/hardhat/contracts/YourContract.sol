@@ -28,6 +28,7 @@ contract YourContract {
     uint contractId;
     uint totalDeposits;
     mapping (address => uint) balance; // maps the insurers addresses to their deposits
+    mapping (address => bool) hasWithdrawn; 
   }
 
   contractParameters[] public insuranceContracts;
@@ -124,18 +125,21 @@ contract YourContract {
 
   function withdraw(uint _id, uint _withdrawAmount) public timedTransitions(_id) atStage(_id, [ContractStates.Funding, ContractStates.Withdraw]) {
     uint maxAmount = insuranceContracts[_id].balance[msg.sender];
+    uint withdrawAmount = _withdrawAmount;
 
     if (insuranceContracts[_id].contractState == ContractStates.Withdraw){
-      uint withdrawMultiplier = (block.timestamp-insuranceContracts[_id].creationTime+depositLength)/(withdrawLength)-1;
-      // ...
+      uint withdrawMultiplier = 2-(block.timestamp-insuranceContracts[_id].creationTime+depositLength)/(withdrawLength);
+      uint maxWithdraw = withdrawMultiplier * maxAmount;
+      if (maxWithdraw < withdrawAmount) {
+        withdrawAmount = maxWithdraw; // set withdrawable amount to maximum allowed by time
+      }
     }
 
-
-    require(maxAmount >= _withdrawAmount, "Trying to withdraw too much");
-    (bool success, ) = msg.sender.call{value: _withdrawAmount}("");
+    require(maxAmount >= withdrawAmount, "Trying to withdraw too much");
+    (bool success, ) = msg.sender.call{value: withdrawAmount}("");
     require(success, "Failed to send Ether");
-    insuranceContracts[_id].balance[msg.sender] -= _withdrawAmount;
-    insuranceContracts[_id].totalDeposits -= _withdrawAmount;
+    insuranceContracts[_id].balance[msg.sender] -= withdrawAmount;
+    insuranceContracts[_id].totalDeposits -= withdrawAmount;
   }
 
   function active(uint _id) public timedTransitions(_id) atStage(_id, [ContractStates.Active, ContractStates.Active]) {
