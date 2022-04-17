@@ -8,12 +8,20 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 contract YourContract {
 
   event NewContract(uint contractId, string name);
+  event Deposit(uint id, address depositor, uint amount);
+  event Withdraw(uint id, address withdrawer, uint amount);
+  event Redeem(uint id, address redeemer, uint amount);
+  event Updated(uint id, uint value);
+  event StateChange(uint id, uint stage);
+
   error FunctionInvalidAtThisStage();
 
-  enum ContractStates {Funding, 
-                       Withdraw, 
-                       Active, 
-                       Payout}
+  enum ContractStates {
+    Funding, 
+    Withdraw, 
+    Active, 
+    Payout
+  }
 
   struct contractParameters { // @TODO oracle datafeed?
     uint contractId;
@@ -23,7 +31,7 @@ contract YourContract {
     uint variableValue;
     bool greaterThanThreshold; // if true, insured wins if final variable is greater than threshold, if false insured wins if lower than or equal to threshold
     uint totalDeposits;
-    address owner;
+    address payable owner;
     uint creationTime;
     uint contractLength;
     mapping (address => uint) balance; // maps the insurers addresses to their deposits
@@ -31,8 +39,6 @@ contract YourContract {
   }
 
   contractParameters[] public insuranceContracts;
-
-  mapping (uint => address) public contractToOwner;
 
 //  uint depositLength = 1 days;
 //  uint withdrawLength = 1 days;
@@ -56,6 +62,7 @@ contract YourContract {
   //@dev transitions selected contract to next state
   function nextStage(uint _id) internal {
     insuranceContracts[_id].contractState = ContractStates(uint(insuranceContracts[_id].contractState) + 1);
+    emit StateChange(_id, uint(insuranceContracts[_id].contractState));
   }
 
   modifier timedTransitions(uint _id) {
@@ -71,14 +78,6 @@ contract YourContract {
     _;
   }
 
-  //@dev transitions state after the function [UNUSED]
-  modifier transitionNext(uint _id)
-  {
-      _;
-      nextStage(_id);
-  }
-
-
   // Onlyowner
   function owner(uint id) public view virtual returns (address) {
       return insuranceContracts[id].owner;
@@ -89,7 +88,7 @@ contract YourContract {
     _;
   }
 
-  // TODO add deposit or make non payable
+
   function createInsuranceContract(uint _contractLength, 
                                     uint _variableThreshold, 
                                     bool _greaterThanThreshold, 
@@ -100,37 +99,39 @@ contract YourContract {
     newContract.contractLength = _contractLength * 1 minutes;
     newContract.variableThreshold = _variableThreshold;
     newContract.greaterThanThreshold = _greaterThanThreshold;
-    newContract.owner = msg.sender;
+    newContract.owner = payable(msg.sender);
     newContract.name = _name;
     newContract.contractState = ContractStates.Funding;
     newContract.contractId = insuranceContracts.length - 1;
     newContract.balance[msg.sender] = msg.value;
     newContract.totalDeposits = msg.value;
 
-    contractToOwner[newContract.contractId] = msg.sender;
     emit NewContract(newContract.contractId, _name);
   }
 
-  // DEBUG
   function totalContracts() public view returns (uint){
     return insuranceContracts.length;
   }
   
-  function myDeposits(uint _id, address _address) public view returns (uint){
+  function addressDeposits(uint _id, address _address) public view returns (uint){
     return insuranceContracts[_id].balance[_address];
   }
 
-  function myPayoutInsurer(uint _id, address _address) public view returns (uint){
-    return insuranceContracts[_id].balance[_address] * insuranceContracts[_id].totalDeposits / (insuranceContracts[_id].totalDeposits - insuranceContracts[_id].balance[insuranceContracts[_id].owner]);
+  function addressPayout(uint _id, address _address) public view returns (uint){
+    if (_address != insuranceContracts[_id].owner){ 
+      // insurer receives rewards proportional to other insurers
+      return insuranceContracts[_id].balance[_address] * insuranceContracts[_id].totalDeposits / (insuranceContracts[_id].totalDeposits - insuranceContracts[_id].balance[insuranceContracts[_id].owner]);
+    } else { 
+      // caller is owner, gets all deposits
+      return insuranceContracts[_id].totalDeposits;
+    }
+
   }
 
   // TODO more involved logic...
   function setValue(uint _id, uint _value) private {
     insuranceContracts[_id].variableValue = _value;
-  }
-
-  function blocktimestamp() public view returns (uint){
-    return block.timestamp;
+    emit Updated(_id, _value);
   }
 
   function addressMaxWithdraw(uint _id, address _address) public view returns (uint){
@@ -152,42 +153,43 @@ contract YourContract {
   // STATE FUNCTIONS
   // ---------------
 
-  // TODO using same argument as 2nd parameter where applicable 
-  // until solution to passing arbitrary values to array
   function deposit(uint _id) public payable timedTransitions(_id) atStage(_id, [ContractStates.Funding, ContractStates.Funding]) { 
-    insuranceContracts[_id].balance[msg.sender] += msg.value;
-    insuranceContracts[_id].totalDeposits += msg.value;
+    uint amount = msg.value;
+    // check for overflow
+    require(insuranceContracts[_id].balance[msg.sender] + amount >= insuranceContracts[_id].balance[msg.sender] && 
+      insuranceContracts[_id].totalDeposits + amount >= insuranceContracts[_id].totalDeposits); 
+    insuranceContracts[_id].balance[msg.sender] += amount;
+    insuranceContracts[_id].totalDeposits += amount;
+    emit Deposit(_id, msg.sender, amount);
   }
 
   // can withdraw any amount, any times in funding, 
   // can only withdraw once in only withdraw phase, with decreasing max amount to withdraw until contract begins
-  function withdraw(uint _id, uint _withdrawAmount) public timedTransitions(_id) atStage(_id, [ContractStates.Funding, ContractStates.Withdraw]) {
-    uint maxAmount = insuranceContracts[_id].balance[msg.sender];
+function withdraw(uint _id, uint _withdrawAmount) public timedTransitions(_id) atStage(_id, [ContractStates.Funding, ContractStates.Withdraw]) {
     uint withdrawAmount = _withdrawAmount;
+    uint maxWithdraw = addressMaxWithdraw(_id, msg.sender);
 
     if (insuranceContracts[_id].contractState == ContractStates.Withdraw){
-      require(insuranceContracts[_id].hasWithdrawn[msg.sender] == false, "User has already withdrawn once");
-      uint withdrawMultiplier = 2-(block.timestamp-insuranceContracts[_id].creationTime+depositLength)/(withdrawLength);
-      uint maxWithdraw = withdrawMultiplier * maxAmount;
-      if (maxWithdraw < withdrawAmount) {
-        withdrawAmount = maxWithdraw; // set withdrawable amount to maximum allowed by time
-      }
-      // if there are no depositors, refund insured, go to redemption
+      insuranceContracts[_id].hasWithdrawn[msg.sender] = true; 
+      // if there are no depositors, refund insured, and go to redemption (end contract)
+      // (totaldeposits == owner balance)
       if (insuranceContracts[_id].totalDeposits == insuranceContracts[_id].balance[insuranceContracts[_id].owner]){
-        withdrawAmount = maxAmount;
+        withdrawAmount = insuranceContracts[_id].totalDeposits;
         nextStage(_id);
         nextStage(_id);
         console.log("No insurers, owner withdrew in withdraw phase!");
       }
-      insuranceContracts[_id].hasWithdrawn[msg.sender] = true; // @!!! what if tx later reverts? does this get written still?
     }
 
-    require(maxAmount >= withdrawAmount, "Trying to withdraw too much");
+    require(maxWithdraw >= withdrawAmount, "Trying to withdraw more than the allowed");
+
     (bool success, ) = msg.sender.call{value: withdrawAmount}("");
     require(success, "Failed to send Ether");
     insuranceContracts[_id].balance[msg.sender] -= withdrawAmount;
     insuranceContracts[_id].totalDeposits -= withdrawAmount;
+    emit Withdraw(_id, msg.sender, withdrawAmount);
   }
+
 
   function active(uint _id, uint _value) public onlyContractOwner(_id) timedTransitions(_id) atStage(_id, [ContractStates.Active, ContractStates.Active]) {
     // if there are no insurers, go to redemption
@@ -203,6 +205,10 @@ contract YourContract {
 
   function redeem(uint _id) public timedTransitions(_id) atStage(_id, [ContractStates.Payout, ContractStates.Payout]) {
     bool resultIsGreater;
+    uint amount;
+    require(insuranceContracts[_id].totalDeposits > 0, "Zero total deposit in contract");
+    require(insuranceContracts[_id].balance[msg.sender] > 0, "This account doesn't have redeemable deposits in this contract");
+
     if (insuranceContracts[_id].variableValue > insuranceContracts[_id].variableThreshold){
       resultIsGreater = true; 
     }
@@ -210,16 +216,19 @@ contract YourContract {
     if (resultIsGreater == insuranceContracts[_id].greaterThanThreshold){
       // insured wins
       // (final value is greater than threshold AND contract pays if its greater) OR (... smaller AND ... smaller)
-      (bool success, ) = insuranceContracts[_id].owner.call{value: insuranceContracts[_id].totalDeposits}("");
+      require(msg.sender == insuranceContracts[_id].owner, "You are an insurer, and the insured won the contract");
+      amount = insuranceContracts[_id].totalDeposits;
+      (bool success, ) = msg.sender.call{value: amount}("");
       require(success, "Failed to send Ether");
       insuranceContracts[_id].totalDeposits = 0;
     } else {
       // insurers win
       require(msg.sender != insuranceContracts[_id].owner, "You are the insured, and the insurers won the contract");
-      uint amount = insuranceContracts[_id].balance[msg.sender] * insuranceContracts[_id].totalDeposits / (insuranceContracts[_id].totalDeposits - insuranceContracts[_id].balance[insuranceContracts[_id].owner]);
+      amount = insuranceContracts[_id].balance[msg.sender] * insuranceContracts[_id].totalDeposits / (insuranceContracts[_id].totalDeposits - insuranceContracts[_id].balance[insuranceContracts[_id].owner]);
       (bool success, ) = msg.sender.call{value: amount}("");
       require(success, "Failed to send Ether");
       insuranceContracts[_id].balance[msg.sender] = 0;
     }
+    emit Redeem(_id, msg.sender, amount);
   }
 }
