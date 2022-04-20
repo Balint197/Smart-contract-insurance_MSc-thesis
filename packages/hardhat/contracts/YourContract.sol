@@ -2,17 +2,14 @@ pragma solidity >=0.8.0 <0.9.0;
 //SPDX-License-Identifier: MIT
 
 import "hardhat/console.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
-
-// https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/access/Ownable.sol
 
 contract YourContract {
     bool internal locked;
 
     // uint depositLength = 1 days;
     // uint withdrawLength = 1 days;
-    uint256 depositLength = 1 minutes;
-    uint256 withdrawLength = 1 minutes;
+    uint256 public depositLength = 1 minutes;
+    uint256 public withdrawLength = 1 minutes;
 
     enum ContractStates {
         Funding,
@@ -163,7 +160,7 @@ contract YourContract {
 
         require(
             maxWithdraw >= withdrawAmount,
-            "Trying to withdraw more than the allowed"
+            "Withdrawing more than allowed"
         );
 
         (bool success, ) = msg.sender.call{value: withdrawAmount}("");
@@ -213,7 +210,7 @@ contract YourContract {
         );
         require(
             insuranceContracts[_id].balance[msg.sender] > 0,
-            "This account doesn't have redeemable deposits in this contract"
+            "No redeemable deposits"
         );
 
         if (
@@ -228,7 +225,7 @@ contract YourContract {
             // (final value is greater than threshold AND contract pays if its greater) OR (... smaller AND ... smaller)
             require(
                 msg.sender == insuranceContracts[_id].owner,
-                "You are an insurer, and the insured won the contract"
+                "The insured won the contract"
             );
             amount = insuranceContracts[_id].totalDeposits;
             (bool success, ) = msg.sender.call{value: amount}("");
@@ -238,7 +235,7 @@ contract YourContract {
             // insurers win
             require(
                 msg.sender != insuranceContracts[_id].owner,
-                "You are the insured, and the insurers won the contract"
+                "The insurers won the contract"
             );
             amount =
                 (insuranceContracts[_id].balance[msg.sender] *
@@ -304,7 +301,7 @@ contract YourContract {
             // state: withdraw or after
             require(
                 insuranceContracts[_id].hasWithdrawn[_address] == false,
-                "Can't withdraw any more, user has already withdrawn once"
+                "User has already withdrawn once"
             );
             maxAmount =
                 (insuranceContracts[_id].balance[_address] *
