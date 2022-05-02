@@ -6,10 +6,10 @@ import "hardhat/console.sol";
 contract Insurance {
     bool internal locked;
 
-    // uint depositLength = 1 days;
-    // uint withdrawLength = 1 days;
-    uint256 public depositLength = 1 minutes;
-    uint256 public withdrawLength = 1 minutes;
+    uint256 public depositLength = 1 days;
+    uint256 public withdrawLength = 1 days;
+    //uint256 public depositLength = 1 minutes;
+    //uint256 public withdrawLength = 1 minutes;
 
     enum ContractStates {
         Funding,
@@ -96,8 +96,7 @@ contract Insurance {
     ) public payable {
         ContractParameters storage newContract = insurance.push();
         newContract.creationTime = block.timestamp;
-        //newContract.contractLength = _contractLength * 1 days;
-        newContract.contractLength = _contractLength * 1 minutes;
+        newContract.contractLength = _contractLength * 1 days;
         newContract.variableThreshold = _variableThreshold;
         newContract.greaterThanThreshold = _greaterThanThreshold;
         newContract.owner = payable(msg.sender);
