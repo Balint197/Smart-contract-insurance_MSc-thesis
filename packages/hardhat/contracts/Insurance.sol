@@ -20,14 +20,14 @@ contract Insurance {
 
     struct ContractParameters {
         // @TODO oracle datafeed?
-        uint256 id;
         string name;
         ContractStates contractState;
+        bool greaterThanThreshold; // if true, insured wins if final variable is greater than threshold, if false insured wins if lower than or equal to threshold
+        address payable owner;
         uint256 variableThreshold;
         uint256 variableValue;
-        bool greaterThanThreshold; // if true, insured wins if final variable is greater than threshold, if false insured wins if lower than or equal to threshold
+        uint256 id;
         uint256 totalDeposits;
-        address payable owner;
         uint256 creationTime;
         uint256 contractLength;
         mapping(address => uint256) balance; // maps the insurers addresses to their deposits
