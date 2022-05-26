@@ -120,6 +120,7 @@ contract YourContract {
         atStage(_id, [ContractStates.Funding, ContractStates.Funding])
     {
         uint256 amount = msg.value;
+        
         // check for overflow - not needed from solidity 0.8.0
         // require(insurance[_id].balance[msg.sender] + amount >= insurance[_id].balance[msg.sender] && insurance[_id].totalDeposits + amount >= insurance[_id].totalDeposits);
         insurance[_id].balance[msg.sender] += amount;
