@@ -22,14 +22,13 @@ async function getTempByLatLon(lat, lon, source) {
                 }
             })
             .then(function (response) {
-                console.log(response.data.main.temp);
+                return response.data.main.temp
             })
             .catch(function (error) {
                 console.log(error);
             })
-            .then(function () {
-                // always executed
-            });  
+            // .then(function () {
+            // });  
             break
         case 'AccuWeather':
             // 1: get location key
@@ -48,7 +47,7 @@ async function getTempByLatLon(lat, lon, source) {
                     }
                 })
                 .then(function (response) {
-                    console.log(response.data[0].Temperature.Metric.Value);
+                    return response.data[0].Temperature.Metric.Value
                 })
                 .catch(function (error) {
                     console.log(error);
@@ -73,7 +72,7 @@ async function getTempByLatLon(lat, lon, source) {
                 }
             })
             .then(function (response) {
-                console.log(response.data.current_weather.temperature);
+                return response.data.current_weather.temperature
             })
             .catch(function (error) {
                 console.log(error);
@@ -90,7 +89,7 @@ async function getTempByLatLon(lat, lon, source) {
                 }
             })
             .then(function (response) {
-                console.log(response.data.current.temperature);
+                return response.data.current.temperature
             })
             .catch(function (error) {
                 console.log(error);
@@ -110,7 +109,7 @@ async function getTempByLatLon(lat, lon, source) {
                 }
             })
             .then(function (response) {
-                console.log(response.data.currentConditions.temp);
+                return response.data.currentConditions.temp
             })
             .catch(function (error) {
                 console.log(error);
@@ -129,7 +128,7 @@ async function getTempByLatLon(lat, lon, source) {
                 }
             })
             .then(function (response) {
-                console.log(response.data.data.timelines[0].intervals[0].values.temperature);
+                return response.data.data.timelines[0].intervals[0].values.temperature
             })
             .catch(function (error) {
                 console.log(error);
@@ -142,12 +141,35 @@ async function getTempByLatLon(lat, lon, source) {
     }
 }
 
+async function getTempByLatLon2(lat, lon, source) {
+    const test = axios.get(process.env.OPENWEATHERMAP_URL, {
+        params: {
+            APPID: process.env.OPENWEATHERMAP_API,
+            lat: lat, 
+            lon: lon, 
+            units: 'metric' // get results in Celsius degrees
+        }
+    })
+    console.log(test)
+    return test.data.main.temps
+}
+
+async function mounted() {
+    const gettest = await getTempByLatLon2(47.473481, 19.058983, 'OpenWeatherMap')
+    console.log(gettest)
+}
+
+mounted()
+
+
 //getTempByLatLon(47.473481, 19.058983, 'OpenWeatherMap')
+
+//getTempByLatLon(47.473481, 19.058983, 'OpenWeatherMap').then(weatherData => console.log(weatherData))
 //getTempByLatLon(47.473481, 19.058983, 'AccuWeather')
 //getTempByLatLon(47.473481, 19.058983, 'OpenMeteo')
 //getTempByLatLon(47.473481, 19.058983, 'WeatherStack')
 //getTempByLatLon(47.473481, 19.058983, 'VisualCrossing')
-getTempByLatLon(47.473481, 19.058983, 'Tomorrow')
+//getTempByLatLon(47.473481, 19.058983, 'Tomorrow')
 //getTempByLatLon(47.473481, 19.058983, 'WeatherBit') // not implemented yet (30 day trial)
 
 
