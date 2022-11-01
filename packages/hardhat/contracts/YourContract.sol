@@ -20,14 +20,14 @@ contract YourContract {
 
     struct ContractParameters {
         // @TODO oracle datafeed?
-        uint256 id;
-        string name;
+        bytes32 name;
         ContractStates contractState;
+        bool greaterThanThreshold; // if true, insured wins if final variable is greater than threshold, if false insured wins if lower than or equal to threshold
+        address payable owner;
         uint256 variableThreshold;
         uint256 variableValue;
-        bool greaterThanThreshold; // if true, insured wins if final variable is greater than threshold, if false insured wins if lower than or equal to threshold
+        uint256 id;
         uint256 totalDeposits;
-        address payable owner;
         uint256 creationTime;
         uint256 contractLength;
         mapping(address => uint256) balance; // maps the insurers addresses to their deposits
@@ -35,7 +35,7 @@ contract YourContract {
     }
     ContractParameters[] public insurance;
 
-    event NewContract(uint256 id, string name);
+    event NewContract(uint256 id, bytes32 name);
     event Deposit(uint256 id, address depositor, uint256 amount);
     event Withdraw(uint256 id, address withdrawer, uint256 amount);
     event Redeem(uint256 id, address redeemer, uint256 amount);
@@ -92,7 +92,7 @@ contract YourContract {
         uint256 _contractLength,
         uint256 _variableThreshold,
         bool _greaterThanThreshold,
-        string memory _name
+        bytes32 _name
     ) public payable {
         ContractParameters storage newContract = insurance.push();
         newContract.creationTime = block.timestamp;
@@ -120,7 +120,6 @@ contract YourContract {
         atStage(_id, [ContractStates.Funding, ContractStates.Funding])
     {
         uint256 amount = msg.value;
-        
         // check for overflow - not needed from solidity 0.8.0
         // require(insurance[_id].balance[msg.sender] + amount >= insurance[_id].balance[msg.sender] && insurance[_id].totalDeposits + amount >= insurance[_id].totalDeposits);
         insurance[_id].balance[msg.sender] += amount;
@@ -140,14 +139,14 @@ contract YourContract {
         uint256 maxWithdraw = addressMaxWithdraw(_id, msg.sender);
 
         if (insurance[_id].contractState == ContractStates.Withdraw) {
+            uint256 totalDeposits = insurance[_id].totalDeposits;
             insurance[_id].hasWithdrawn[msg.sender] = true;
             // if there are no depositors, refund insured, and go to redemption (end contract)
             // (totaldeposits == owner balance)
             if (
-                insurance[_id].totalDeposits ==
-                insurance[_id].balance[insurance[_id].owner]
+                totalDeposits == insurance[_id].balance[insurance[_id].owner]
             ) {
-                withdrawAmount = insurance[_id].totalDeposits;
+                withdrawAmount = totalDeposits;
                 nextStage(_id);
                 nextStage(_id);
                 console.log("No insurers, owner withdrew in withdraw phase!");
@@ -256,16 +255,16 @@ contract YourContract {
         view
         returns (uint256)
     {
+        uint256 totalDeposits = insurance[_id].totalDeposits;
         if (_address != insurance[_id].owner) {
             // insurer receives rewards proportional to other insurers
             return
                 (insurance[_id].balance[_address] *
-                    insurance[_id].totalDeposits) /
-                (insurance[_id].totalDeposits -
+                    totalDeposits) / (totalDeposits -
                     insurance[_id].balance[insurance[_id].owner]);
         } else {
             // caller is owner, gets all deposits
-            return insurance[_id].totalDeposits;
+            return totalDeposits;
         }
     }
 
