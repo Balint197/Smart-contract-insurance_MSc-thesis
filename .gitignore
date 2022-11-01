@@ -67,3 +67,6 @@ yarn-error.log*
 
 # doc directory
 /doc
+weather_scripts/__pycache__/example.cpython-39.pyc
+weather_scripts/__pycache__/iot_api.cpython-39.pyc
+weather_scripts/__pycache__/iot_weather.cpython-310.pyc
