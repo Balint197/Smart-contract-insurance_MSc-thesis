@@ -1,0 +1,22 @@
+type                = "directrequest"
+schemaVersion       = 1
+evmChainID          = 1
+name                = "request temperature from iot node"
+contractAddress     = ""
+
+# Optional fields:
+# requesters        = [
+#   "0xaaaa1F8ee20f5565510B84f9353F1E333E753B7a",
+#   "0xbbbb70F0e81C6F3430dfdC9fa02fB22BdD818C4e"
+# ]
+# minContractPaymentLinkJuels = "100000000000000"
+# externalJobID = "0EEC7E1D-D0D2-476C-A1A8-72DFB6633F02"
+# minIncomingConfirmations = 10
+
+observationSource   = """
+    ds          [type="http" method=GET url="http://example.com"]
+    ds_parse    [type="jsonparse" path="USD"]
+    ds_multiply [type="multiply" times=100]
+
+    ds -> ds_parse -> ds_multiply
+"""
