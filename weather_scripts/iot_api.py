@@ -6,6 +6,9 @@ import time
 
 app = FastAPI()
 
+# how to start server: 
+# uvicorn iot_api:app --reload
+
 currentTemperature : int = 0
 
 def getTemperature():

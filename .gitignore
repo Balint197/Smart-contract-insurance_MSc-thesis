@@ -70,3 +70,4 @@ yarn-error.log*
 weather_scripts/__pycache__/example.cpython-39.pyc
 weather_scripts/__pycache__/iot_api.cpython-39.pyc
 weather_scripts/__pycache__/iot_weather.cpython-310.pyc
+weather_scripts/__pycache__/iot_api.cpython-310.pyc
