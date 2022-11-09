@@ -2,14 +2,21 @@ pragma solidity >=0.8.0 <0.9.0;
 //SPDX-License-Identifier: MIT
 
 import "hardhat/console.sol";
+import "@chainlink/contracts/src/v0.8/ChainlinkClient.sol";
+import "@chainlink/contracts/src/v0.8/ConfirmedOwner.sol";
 
-contract YourContract {
+contract YourContract is ChainlinkClient, ConfirmedOwner{
+    using Chainlink for Chainlink.Request;
+
     bool internal locked;
+    address private _owner;
 
     uint256 public depositLength = 1 days;
     uint256 public withdrawLength = 1 days;
     //uint256 public depositLength = 1 minutes;
     //uint256 public withdrawLength = 1 minutes;
+
+    uint256 private constant ORACLE_PAYMENT = 1 * LINK_DIVISIBILITY; // 1 * 10**18
 
     enum ContractStates {
         Funding,
@@ -20,7 +27,7 @@ contract YourContract {
 
     struct ContractParameters {
         // @TODO oracle datafeed?
-        bytes32 name;
+        string name;
         ContractStates contractState;
         bool greaterThanThreshold; // if true, insured wins if final variable is greater than threshold, if false insured wins if lower than or equal to threshold
         address payable owner;
@@ -30,17 +37,22 @@ contract YourContract {
         uint256 totalDeposits;
         uint256 creationTime;
         uint256 contractLength;
+        int256  latitude;
+        int256  longitude;
         mapping(address => uint256) balance; // maps the insurers addresses to their deposits
         mapping(address => bool) hasWithdrawn;
+        bytes32 requestId;
     }
     ContractParameters[] public insurance;
 
-    event NewContract(uint256 id, bytes32 name);
+    event NewContract(uint256 id, string name);
     event Deposit(uint256 id, address depositor, uint256 amount);
     event Withdraw(uint256 id, address withdrawer, uint256 amount);
     event Redeem(uint256 id, address redeemer, uint256 amount);
     event Updated(uint256 id, uint256 value);
     event StateChange(uint256 id, uint256 stage);
+    event RequestIotTemperatureFulfilled(bytes32 indexed requestId, uint256 indexed temperature);
+
 
     error FunctionInvalidAtThisStage();
 
@@ -84,21 +96,31 @@ contract YourContract {
     }
 
     modifier onlyContractOwner(uint256 id) {
-        require(owner(id) == msg.sender, "Ownable: caller is not the owner");
+        require(owner(id) == msg.sender, "Ownable: caller is not the owner of the specified contract");
         _;
+    }
+
+    constructor() ConfirmedOwner(msg.sender) {
+        setChainlinkToken(0x326C977E6efc84E512bB9C30f76E30c160eD06FB);
+        _owner = msg.sender;
     }
 
     function createInsuranceContract(
         uint256 _contractLength,
         uint256 _variableThreshold,
         bool _greaterThanThreshold,
-        bytes32 _name
+        int256 _latitude,
+        int256 _longitude, 
+        string memory _name
     ) public payable {
         ContractParameters storage newContract = insurance.push();
         newContract.creationTime = block.timestamp;
         newContract.contractLength = _contractLength * 1 days;
         newContract.variableThreshold = _variableThreshold;
         newContract.greaterThanThreshold = _greaterThanThreshold;
+        require(_latitude<900000 && _latitude>-900000 && _longitude<1800000 && _longitude>-1800000);
+        newContract.latitude = _latitude;
+        newContract.longitude = _longitude;
         newContract.owner = payable(msg.sender);
         newContract.name = _name;
         newContract.contractState = ContractStates.Funding;
@@ -234,6 +256,40 @@ contract YourContract {
         emit Redeem(_id, msg.sender, amount);
     }
 
+    function withdrawLink() public onlyOwner {
+        LinkTokenInterface link = LinkTokenInterface(chainlinkTokenAddress());
+        require(link.transfer(msg.sender, link.balanceOf(address(this))), 'Unable to transfer');
+    }
+
+    function cancelRequest(
+        bytes32 _requestId,
+        uint256 _payment,
+        bytes4 _callbackFunctionId,
+        uint256 _expiration
+    ) public onlyOwner {
+        cancelChainlinkRequest(_requestId, _payment, _callbackFunctionId, _expiration);
+    }
+
+
+    function requestIotTemperature(uint256 _id, address _oracle, string memory _jobId)
+        public
+        onlyContractOwner(_id)
+        returns (bytes32 requestId) 
+        {
+        Chainlink.Request memory req = buildChainlinkRequest(
+            stringToBytes32(_jobId),
+            address(this),
+            this.fulfillIotTemperature.selector);
+        //sendChainlinkRequestTo(_oracle, req, ORACLE_PAYMENT);
+        insurance[_id].requestId = sendChainlinkRequestTo(_oracle, req, ORACLE_PAYMENT);
+        }
+
+    function fulfillIotTemperature(uint256 _id, bytes32 _requestId, uint256 _temperature) public recordChainlinkFulfillment(_requestId) {
+        emit RequestIotTemperatureFulfilled(_requestId, _temperature);
+        insurance[_id].variableValue = _temperature; // TODO make it tied to ID
+    }
+
+
     function owner(uint256 id) public view virtual returns (address) {
         return insurance[id].owner;
     }
@@ -300,6 +356,10 @@ contract YourContract {
         return maxAmount;
     }
 
+    function getChainlinkToken() public view returns (address) {
+        return chainlinkTokenAddress();
+    }
+
     //@dev transitions selected contract to next state
     function nextStage(uint256 _id) internal {
         insurance[_id].contractState = ContractStates(
@@ -312,5 +372,17 @@ contract YourContract {
     function setValue(uint256 _id, uint256 _value) private {
         insurance[_id].variableValue = _value;
         emit Updated(_id, _value);
+    }
+
+    function stringToBytes32(string memory source) private pure returns (bytes32 result) {
+        bytes memory tempEmptyStringTest = bytes(source);
+        if (tempEmptyStringTest.length == 0) {
+            return 0x0;
+        }
+
+        assembly {
+            //solhint-disable-line no-inline-assembly
+            result := mload(add(source, 32))
+        }
     }
 }
