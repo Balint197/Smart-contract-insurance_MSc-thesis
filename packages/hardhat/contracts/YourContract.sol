@@ -26,22 +26,16 @@ contract YourContract is ChainlinkClient, ConfirmedOwner{
     }
 
     struct ContractParameters {
-        // @TODO oracle datafeed?
         string name;
         ContractStates contractState;
         bool greaterThanThreshold; // if true, insured wins if final variable is greater than threshold, if false insured wins if lower than or equal to threshold
         address payable owner;
-        uint256 variableThreshold;
-        uint256 variableValue;
-        uint256 id;
-        uint256 totalDeposits;
-        uint256 creationTime;
-        uint256 contractLength;
-        int256  latitude;
-        int256  longitude;
+        address oracle;
+        uint256[6] contractDetails; // variableThreshold, variableValue, id, totalDeposits, creationTime, contractLength
+        int256[2] latlon; // in an array, otherwise too many local variables and the stack becomes too deep
         mapping(address => uint256) balance; // maps the insurers addresses to their deposits
         mapping(address => bool) hasWithdrawn;
-        bytes32 requestId;
+        bytes32[2] jobData; // requestId, jobId
     }
     ContractParameters[] public insurance;
 
@@ -52,7 +46,6 @@ contract YourContract is ChainlinkClient, ConfirmedOwner{
     event Updated(uint256 id, uint256 value);
     event StateChange(uint256 id, uint256 stage);
     event RequestIotTemperatureFulfilled(bytes32 indexed requestId, uint256 indexed temperature);
-
 
     error FunctionInvalidAtThisStage();
 
@@ -70,20 +63,20 @@ contract YourContract is ChainlinkClient, ConfirmedOwner{
     modifier timedTransitions(uint256 _id) {
         if (
             insurance[_id].contractState == ContractStates.Funding &&
-            block.timestamp >= insurance[_id].creationTime + depositLength
+            block.timestamp >= insurance[_id].contractDetails[4] + depositLength
         ) nextStage(_id);
         if (
             insurance[_id].contractState == ContractStates.Withdraw &&
             block.timestamp >=
-            insurance[_id].creationTime + depositLength + withdrawLength
+            insurance[_id].contractDetails[4] + depositLength + withdrawLength
         ) nextStage(_id);
         if (
             insurance[_id].contractState == ContractStates.Active &&
             block.timestamp >=
-            insurance[_id].creationTime +
+            insurance[_id].contractDetails[4] +
                 depositLength +
                 withdrawLength +
-                insurance[_id].contractLength
+                insurance[_id].contractDetails[5]
         ) nextStage(_id);
         _;
     }
@@ -96,14 +89,14 @@ contract YourContract is ChainlinkClient, ConfirmedOwner{
     }
 
     modifier onlyContractOwner(uint256 id) {
-        require(owner(id) == msg.sender, "Ownable: caller is not the owner of the specified contract");
+        require(insuranceOwner(id) == msg.sender, "Ownable: caller is not the owner of the specified contract");
         _;
     }
 
     constructor() ConfirmedOwner(msg.sender) {
         setChainlinkToken(0x326C977E6efc84E512bB9C30f76E30c160eD06FB);
-        _owner = msg.sender;
     }
+
 
     function createInsuranceContract(
         uint256 _contractLength,
@@ -111,24 +104,27 @@ contract YourContract is ChainlinkClient, ConfirmedOwner{
         bool _greaterThanThreshold,
         int256 _latitude,
         int256 _longitude, 
-        string memory _name
+        string memory _name, 
+        string memory _jobId,
+        address _oracle
     ) public payable {
         ContractParameters storage newContract = insurance.push();
-        newContract.creationTime = block.timestamp;
-        newContract.contractLength = _contractLength * 1 days;
-        newContract.variableThreshold = _variableThreshold;
+        newContract.contractDetails[4] = block.timestamp;
+        newContract.contractDetails[5] = _contractLength * 1 days;
+        newContract.contractDetails[0] = _variableThreshold;
         newContract.greaterThanThreshold = _greaterThanThreshold;
         require(_latitude<900000 && _latitude>-900000 && _longitude<1800000 && _longitude>-1800000);
-        newContract.latitude = _latitude;
-        newContract.longitude = _longitude;
+        newContract.latlon = [_latitude, _longitude];
         newContract.owner = payable(msg.sender);
         newContract.name = _name;
         newContract.contractState = ContractStates.Funding;
-        newContract.id = insurance.length - 1;
+        newContract.contractDetails[2] = insurance.length - 1;
         newContract.balance[msg.sender] = msg.value;
-        newContract.totalDeposits = msg.value;
+        newContract.contractDetails[3] = msg.value;
+        newContract.jobData[1] = stringToBytes32(_jobId);
+        newContract.oracle = _oracle;
 
-        emit NewContract(newContract.id, _name);
+        emit NewContract(newContract.contractDetails[2], _name);
     }
 
     // ---------------
@@ -145,7 +141,7 @@ contract YourContract is ChainlinkClient, ConfirmedOwner{
         // check for overflow - not needed from solidity 0.8.0
         // require(insurance[_id].balance[msg.sender] + amount >= insurance[_id].balance[msg.sender] && insurance[_id].totalDeposits + amount >= insurance[_id].totalDeposits);
         insurance[_id].balance[msg.sender] += amount;
-        insurance[_id].totalDeposits += amount;
+        insurance[_id].contractDetails[3] += amount;
         emit Deposit(_id, msg.sender, amount);
     }
 
@@ -161,7 +157,7 @@ contract YourContract is ChainlinkClient, ConfirmedOwner{
         uint256 maxWithdraw = addressMaxWithdraw(_id, msg.sender);
 
         if (insurance[_id].contractState == ContractStates.Withdraw) {
-            uint256 totalDeposits = insurance[_id].totalDeposits;
+            uint256 totalDeposits = insurance[_id].contractDetails[3];
             insurance[_id].hasWithdrawn[msg.sender] = true;
             // if there are no depositors, refund insured, and go to redemption (end contract)
             // (totaldeposits == owner balance)
@@ -180,7 +176,7 @@ contract YourContract is ChainlinkClient, ConfirmedOwner{
         (bool success, ) = msg.sender.call{value: withdrawAmount}("");
         require(success, "Failed to send Ether");
         insurance[_id].balance[msg.sender] -= withdrawAmount;
-        insurance[_id].totalDeposits -= withdrawAmount;
+        insurance[_id].contractDetails[3] -= withdrawAmount;
         emit Withdraw(_id, msg.sender, withdrawAmount);
     }
 
@@ -192,13 +188,13 @@ contract YourContract is ChainlinkClient, ConfirmedOwner{
     {
         // if there are no insurers, go to redemption
         if (
-            insurance[_id].totalDeposits ==
+            insurance[_id].contractDetails[3] ==
             insurance[_id].balance[insurance[_id].owner]
         ) {
             uint256 greaterThanThresh = insurance[_id].greaterThanThreshold
                 ? uint256(1)
                 : uint256(0); // casting bool to uint
-            setValue(_id, insurance[_id].variableThreshold + greaterThanThresh); // set value so insured wins and they can redeem
+            setValue(_id, insurance[_id].contractDetails[0] + greaterThanThresh); // set value so insured wins and they can redeem
             nextStage(_id); // skip active phase
             console.log("next stage!");
         } else {
@@ -215,7 +211,7 @@ contract YourContract is ChainlinkClient, ConfirmedOwner{
         bool resultIsGreater;
         uint256 amount;
         require(
-            insurance[_id].totalDeposits > 0,
+            insurance[_id].contractDetails[3] > 0,
             "Zero total deposit in contract"
         );
         require(
@@ -223,7 +219,7 @@ contract YourContract is ChainlinkClient, ConfirmedOwner{
             "No redeemable deposits"
         );
 
-        if (insurance[_id].variableValue > insurance[_id].variableThreshold) {
+        if (insurance[_id].contractDetails[1] > insurance[_id].contractDetails[0]) {
             resultIsGreater = true;
         }
 
@@ -234,10 +230,10 @@ contract YourContract is ChainlinkClient, ConfirmedOwner{
                 msg.sender == insurance[_id].owner,
                 "The insured won the contract"
             );
-            amount = insurance[_id].totalDeposits;
+            amount = insurance[_id].contractDetails[3];
             (bool success, ) = msg.sender.call{value: amount}("");
             require(success, "Failed to send Ether");
-            insurance[_id].totalDeposits = 0;
+            insurance[_id].contractDetails[3] = 0;
         } else {
             // insurers win
             require(
@@ -246,8 +242,8 @@ contract YourContract is ChainlinkClient, ConfirmedOwner{
             );
             amount =
                 (insurance[_id].balance[msg.sender] *
-                    insurance[_id].totalDeposits) /
-                (insurance[_id].totalDeposits -
+                    insurance[_id].contractDetails[3]) /
+                (insurance[_id].contractDetails[3] -
                     insurance[_id].balance[insurance[_id].owner]);
             (bool success, ) = msg.sender.call{value: amount}("");
             require(success, "Failed to send Ether");
@@ -271,29 +267,30 @@ contract YourContract is ChainlinkClient, ConfirmedOwner{
     }
 
 
-    function requestIotTemperature(uint256 _id, address _oracle, string memory _jobId)
+    function requestIotTemperature(uint256 _id)
         public
         onlyContractOwner(_id)
-        returns (bytes32 requestId) 
         {
         Chainlink.Request memory req = buildChainlinkRequest(
-            stringToBytes32(_jobId),
+            insurance[_id].jobData[1], // jobId
             address(this),
             this.fulfillIotTemperature.selector);
-        //sendChainlinkRequestTo(_oracle, req, ORACLE_PAYMENT);
-        insurance[_id].requestId = sendChainlinkRequestTo(_oracle, req, ORACLE_PAYMENT);
+        insurance[_id].jobData[0] = sendChainlinkRequestTo(insurance[_id].oracle, req, ORACLE_PAYMENT);
         }
 
-    function fulfillIotTemperature(uint256 _id, bytes32 _requestId, uint256 _temperature) public recordChainlinkFulfillment(_requestId) {
-        emit RequestIotTemperatureFulfilled(_requestId, _temperature);
-        insurance[_id].variableValue = _temperature; // TODO make it tied to ID
+    // TODO on contract end, call request → fulfill → payout (instead of just setting)
+    function fulfillIotTemperature(uint256 _id, uint256 _temperature)
+        public 
+        recordChainlinkFulfillment(insurance[_id].jobData[0]) {
+        emit RequestIotTemperatureFulfilled(insurance[_id].jobData[0], _temperature);
+        insurance[_id].contractDetails[1] = _temperature;
     }
 
 
-    function owner(uint256 id) public view virtual returns (address) {
+    function insuranceOwner(uint256 id) public view virtual returns (address) {
         return insurance[id].owner;
     }
-
+    
     function totalContracts() public view returns (uint256) {
         return insurance.length;
     }
@@ -311,7 +308,7 @@ contract YourContract is ChainlinkClient, ConfirmedOwner{
         view
         returns (uint256)
     {
-        uint256 totalDeposits = insurance[_id].totalDeposits;
+        uint256 totalDeposits = insurance[_id].contractDetails[3];
         if (_address != insurance[_id].owner) {
             // insurer receives rewards proportional to other insurers
             return
@@ -331,7 +328,7 @@ contract YourContract is ChainlinkClient, ConfirmedOwner{
     {
         uint256 maxAmount = insurance[_id].balance[_address];
 
-        if (block.timestamp > insurance[_id].creationTime + depositLength) {
+        if (block.timestamp > insurance[_id].contractDetails[4] + depositLength) {
             // state: withdraw or after
             require(
                 insurance[_id].hasWithdrawn[_address] == false,
@@ -339,7 +336,7 @@ contract YourContract is ChainlinkClient, ConfirmedOwner{
             );
             maxAmount =
                 (insurance[_id].balance[_address] *
-                    (insurance[_id].creationTime +
+                    (insurance[_id].contractDetails[4] +
                         depositLength +
                         withdrawLength -
                         block.timestamp)) /
@@ -348,7 +345,7 @@ contract YourContract is ChainlinkClient, ConfirmedOwner{
 
         if (
             block.timestamp >
-            insurance[_id].creationTime + depositLength + withdrawLength
+            insurance[_id].contractDetails[4] + depositLength + withdrawLength
         ) {
             // state: active or after
             maxAmount = 0;
@@ -369,8 +366,9 @@ contract YourContract is ChainlinkClient, ConfirmedOwner{
     }
 
     // TODO more involved logic...
+    // delete
     function setValue(uint256 _id, uint256 _value) private {
-        insurance[_id].variableValue = _value;
+        insurance[_id].contractDetails[1] = _value;
         emit Updated(_id, _value);
     }
 

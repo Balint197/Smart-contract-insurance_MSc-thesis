@@ -8,6 +8,7 @@ describe("Insurance", function () {
   let owner;
   let addr1;
   let addr2;
+  let oracle;
 
   let balanceBefore0;
   let balanceBefore1;
@@ -15,8 +16,8 @@ describe("Insurance", function () {
 
   beforeEach(async function () {
     // Get the ContractFactory and Signers here.
-    Insurance = await ethers.getContractFactory("Insurance");
-    [owner, addr1, addr2] = await ethers.getSigners();
+    Insurance = await ethers.getContractFactory("YourContract");
+    [owner, addr1, addr2, oracle] = await ethers.getSigners();
 
     insurance = await Insurance.deploy();
 
@@ -26,7 +27,7 @@ describe("Insurance", function () {
     balanceBefore2 = await ethers.provider.getBalance(addr2.address);
 
     // create insurance contract and fund with 2 ETH
-    const createInsuranceTx = await insurance.connect(owner).createInsuranceContract(3, 15, 1, "Test contract", { value: ethers.utils.parseEther("2.0") });
+    const createInsuranceTx = await insurance.connect(owner).createInsuranceContract(3, 15, 1, 12, -23, "Test contract", "23adb8e036b04b18895440e174a9e329", oracle.address, { value: ethers.utils.parseEther("2.0") });
     await createInsuranceTx.wait();
   });
 
@@ -43,7 +44,7 @@ describe("Insurance", function () {
   it("Should create a new insurance contract with correct balances", async function () {
 
     expect(await insurance.totalContracts()).to.equal(1);
-    expect(await insurance.owner(0)).to.equal(owner.address);
+    expect(await insurance.insuranceOwner(0)).to.equal(owner.address);
 
     expect(await insurance.addressDeposits(0, owner.address)).to.equal(ethers.utils.parseEther("2.0"));
     expect(await insurance.addressMaxWithdraw(0, owner.address)).to.equal(ethers.utils.parseEther("2.0"));
@@ -54,7 +55,7 @@ describe("Insurance", function () {
   
   it("Should make sure withdraws work", async function () {
 
-    expect(await insurance.owner(0)).to.equal(owner.address);
+    expect(await insurance.insuranceOwner(0)).to.equal(owner.address);
 
     // checking deposits
     expect(await insurance.connect(owner).addressDeposits(0, owner.address)).to.equal(ethers.utils.parseEther("2.0"));
@@ -259,7 +260,7 @@ describe("Insurance", function () {
     balanceBefore2 = await ethers.provider.getBalance(addr2.address);
     // deploy new insurance contract, id = 1
     // create insurance contract and fund with 2 ETH
-    const createInsuranceTx = await insurance.connect(owner).createInsuranceContract(3, 15, 0, "Test contract", { value: ethers.utils.parseEther("2.0") });
+    const createInsuranceTx = await insurance.connect(owner).createInsuranceContract(3, 15, 0, 12, -23, "Test contract", "23adb8e036b04b18895440e174a9e329", oracle.address, { value: ethers.utils.parseEther("2.0") });
     await createInsuranceTx.wait();
 
     // wait 1 hour from contract start -> deposit and withdraw phase
@@ -322,7 +323,7 @@ describe("Insurance", function () {
     balanceBefore2 = await ethers.provider.getBalance(addr2.address);
     // deploy new insurance contract, id = 1
     // create insurance contract and fund with 2 ETH
-    const createInsuranceTx = await insurance.connect(owner).createInsuranceContract(3, 15, 0, "Test contract", { value: ethers.utils.parseEther("2.0") });
+    const createInsuranceTx = await insurance.connect(owner).createInsuranceContract(3, 15, 0, 12, -23, "Test contract", "23adb8e036b04b18895440e174a9e329", oracle.address, { value: ethers.utils.parseEther("2.0") });
     await createInsuranceTx.wait();
 
     // wait 1 hour from contract start -> deposit and withdraw phase
