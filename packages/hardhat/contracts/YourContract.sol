@@ -18,6 +18,8 @@ contract YourContract is ChainlinkClient, ConfirmedOwner{
 
     uint256 private constant ORACLE_PAYMENT = 1 * LINK_DIVISIBILITY; // 1 * 10**18
 
+    mapping(bytes32 => uint256) requestToId;
+
     enum ContractStates {
         Funding,
         Withdraw,
@@ -29,6 +31,7 @@ contract YourContract is ChainlinkClient, ConfirmedOwner{
         string name;
         ContractStates contractState;
         bool greaterThanThreshold; // if true, insured wins if final variable is greater than threshold, if false insured wins if lower than or equal to threshold
+        bool temperatureSet;
         address payable owner;
         address oracle;
         uint256[6] contractDetails; // variableThreshold, variableValue, id, totalDeposits, creationTime, contractLength
@@ -110,7 +113,8 @@ contract YourContract is ChainlinkClient, ConfirmedOwner{
     ) public payable {
         ContractParameters storage newContract = insurance.push();
         newContract.contractDetails[4] = block.timestamp;
-        newContract.contractDetails[5] = _contractLength * 1 days;
+        newContract.contractDetails[5] = _contractLength * 1 minutes;
+        //newContract.contractDetails[5] = _contractLength * 1 days;
         newContract.contractDetails[0] = _variableThreshold;
         newContract.greaterThanThreshold = _greaterThanThreshold;
         require(_latitude<900000 && _latitude>-900000 && _longitude<1800000 && _longitude>-1800000);
@@ -218,6 +222,10 @@ contract YourContract is ChainlinkClient, ConfirmedOwner{
             insurance[_id].balance[msg.sender] > 0,
             "No redeemable deposits"
         );
+        require(
+            insurance[_id].temperatureSet,
+            "Temperature not set, call requestIotTemperature()"
+        ); // must call requestIotTemperature() before redeeming to set final temperature
 
         if (insurance[_id].contractDetails[1] > insurance[_id].contractDetails[0]) {
             resultIsGreater = true;
@@ -240,6 +248,7 @@ contract YourContract is ChainlinkClient, ConfirmedOwner{
                 msg.sender != insurance[_id].owner,
                 "The insurers won the contract"
             );
+            // calculate deposit-proportional winnings
             amount =
                 (insurance[_id].balance[msg.sender] *
                     insurance[_id].contractDetails[3]) /
@@ -269,21 +278,25 @@ contract YourContract is ChainlinkClient, ConfirmedOwner{
 
     function requestIotTemperature(uint256 _id)
         public
-        onlyContractOwner(_id)
+        timedTransitions(_id)
+        atStage(_id, [ContractStates.Payout, ContractStates.Payout]) // only callable at redeem stage
         {
+        require(insurance[_id].temperatureSet == false, "Temperature already set");
         Chainlink.Request memory req = buildChainlinkRequest(
             insurance[_id].jobData[1], // jobId
             address(this),
             this.fulfillIotTemperature.selector);
         insurance[_id].jobData[0] = sendChainlinkRequestTo(insurance[_id].oracle, req, ORACLE_PAYMENT);
+        requestToId[insurance[_id].jobData[0]] = _id;
         }
 
     // TODO on contract end, call request → fulfill → payout (instead of just setting)
-    function fulfillIotTemperature(uint256 _id, uint256 _temperature)
+    function fulfillIotTemperature(bytes32 requestId, uint256 _temperature)
         public 
-        recordChainlinkFulfillment(insurance[_id].jobData[0]) {
-        emit RequestIotTemperatureFulfilled(insurance[_id].jobData[0], _temperature);
-        insurance[_id].contractDetails[1] = _temperature;
+        recordChainlinkFulfillment(requestId) {
+        emit RequestIotTemperatureFulfilled(requestId, _temperature);
+        insurance[requestToId[requestId]].contractDetails[1] = _temperature;
+        insurance[requestToId[requestId]].temperatureSet = true;
     }
 
 
@@ -365,9 +378,8 @@ contract YourContract is ChainlinkClient, ConfirmedOwner{
         emit StateChange(_id, uint8(insurance[_id].contractState));
     }
 
-    // TODO more involved logic...
-    // delete
-    function setValue(uint256 _id, uint256 _value) private {
+    // TODO delete for production (only for tests)
+    function setValue(uint256 _id, uint256 _value) private onlyContractOwner(_id) {
         insurance[_id].contractDetails[1] = _value;
         emit Updated(_id, _value);
     }
