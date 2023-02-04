@@ -1,0 +1,19 @@
+OPENWEATHERMAP_API = *INSERT_API_KEY*
+OPENWEATHERMAP_URL = https://api.openweathermap.org/data/2.5/weather
+
+WEATHERBIT_API = *INSERT_API_KEY*
+
+ACCUWEATHER_API = *INSERT_API_KEY*
+ACCUWEATHER_GEOPOS_URL = http://dataservice.accuweather.com/locations/v1/cities/geoposition/search
+ACCUWEATHER_CONDITIONS_URL = http://dataservice.accuweather.com/currentconditions/v1/
+
+OPEN_METEO_URL = https://api.open-meteo.com/v1/forecast
+
+WEATHERSTACK_API = *INSERT_API_KEY*
+WEATHERSTACK_URL = http://api.weatherstack.com/current
+
+VISUALCROSSING_URL = https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/
+VISUALCROSSING_API = *INSERT_API_KEY*
+
+TOMORROW_API = *INSERT_API_KEY*
+TOMORROW_URL = https://api.tomorrow.io/v4/timelines
